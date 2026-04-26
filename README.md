@@ -23,6 +23,3 @@ python build.py
 
 Produces a standalone `SoundCloud.exe` in `dist/SoundCloud/`.
 
-## Discord Rich Presence
-
-Go to [discord.com/developers](https://discord.com/developers), create an app, copy the Application ID and paste it into Settings inside the app.
