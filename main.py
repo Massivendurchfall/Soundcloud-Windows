@@ -46,7 +46,6 @@ USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-# Injiziert bei DocumentCreation — bevor SoundCloud irgendein JS ausführt
 STEALTH_EARLY = """
 (function() {
     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -54,18 +53,10 @@ STEALTH_EARLY = """
     Object.defineProperty(navigator, 'languages', {get: () => ['de-DE', 'de', 'en-US', 'en']});
     Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
     Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-
     window.chrome = {
-        runtime: {
-            id: undefined,
-            connect: function() {},
-            sendMessage: function() {},
-        },
-        loadTimes: function() {},
-        csi: function() {},
-        app: {},
+        runtime: { id: undefined, connect: function() {}, sendMessage: function() {} },
+        loadTimes: function() {}, csi: function() {}, app: {},
     };
-
     const origQuery = window.navigator.permissions.query;
     window.navigator.permissions.query = (parameters) => (
         parameters.name === 'notifications'
@@ -75,8 +66,11 @@ STEALTH_EARLY = """
 })();
 """
 
-AD_HIDE_CSS = """
-(function injectAdHider() {
+AD_HIDE_CSS_ONCE = """
+(function() {
+    if (window.__scAdHiderInstalled) return;
+    window.__scAdHiderInstalled = true;
+
     const style = document.createElement('style');
     style.id = 'sc-ad-hider';
     style.textContent = `
@@ -101,31 +95,44 @@ AD_HIDE_CSS = """
         }
     `;
     if (!document.getElementById('sc-ad-hider')) {
-        document.head.appendChild(style);
+        (document.head || document.documentElement).appendChild(style);
     }
+
+    const SELECTORS = [
+        '[class*="promoted"]', '[class*="Promoted"]', '[class*="advertisement"]',
+        '[class*="upsell"]', '[class*="Upsell"]', '[class*="adSlot"]',
+        '[class*="adBanner"]', '[class*="listenWithGo"]', '[class*="goPromo"]',
+        '[aria-label="Advertisement"]', '[data-testid*="ad"]', '[data-testid*="promoted"]',
+    ].join(',');
+
+    let scheduled = false;
     function removeAdNodes() {
-        const selectors = [
-            '[class*="promoted"]', '[class*="Promoted"]', '[class*="advertisement"]',
-            '[class*="upsell"]', '[class*="Upsell"]', '[class*="adSlot"]',
-            '[class*="adBanner"]', '[class*="listenWithGo"]', '[class*="goPromo"]',
-            '[aria-label="Advertisement"]', '[data-testid*="ad"]', '[data-testid*="promoted"]',
-        ];
-        selectors.forEach(sel => {
-            document.querySelectorAll(sel).forEach(el => {
-                if (!el.closest('.playControls') && !el.closest('nav')) {
-                    el.style.display = 'none';
-                }
-            });
+        scheduled = false;
+        document.querySelectorAll(SELECTORS).forEach(el => {
+            if (!el.closest('.playControls') && !el.closest('nav')) {
+                el.style.display = 'none';
+            }
         });
     }
+
+    function scheduleRemove() {
+        if (!scheduled) {
+            scheduled = true;
+            requestAnimationFrame(removeAdNodes);
+        }
+    }
+
     removeAdNodes();
-    const observer = new MutationObserver(() => removeAdNodes());
-    observer.observe(document.body, { childList: true, subtree: true });
+    const observer = new MutationObserver(scheduleRemove);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
 })();
 """
 
 LIKE_THROTTLE_JS = """
 (function() {
+    if (window.__scLikeThrottleInstalled) return;
+    window.__scLikeThrottleInstalled = true;
+
     const MIN_DELAY_MS = 1500;
     const MAX_DELAY_MS = 4000;
     let lastLike = 0;
@@ -447,6 +454,7 @@ class SoundCloudApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.cfg = load_settings()
+        self._last_title = ""
         self.setWindowTitle("SoundCloud")
         self.setMinimumSize(800, 600)
         self.resize(1200, 800)
@@ -463,11 +471,9 @@ class SoundCloudApp(QMainWindow):
         )
         self.profile.setHttpUserAgent(USER_AGENT)
 
-        # Ad-Blocker
         self.ad_blocker = AdBlockInterceptor()
         self.profile.setUrlRequestInterceptor(self.ad_blocker)
 
-        # Stealth-Script bei DocumentCreation registrieren (frühestmöglich)
         script = QWebEngineScript()
         script.setName("stealth")
         script.setSourceCode(STEALTH_EARLY)
@@ -487,28 +493,22 @@ class SoundCloudApp(QMainWindow):
         self.discord = DiscordPresence(self.cfg.get("discord_id", ""))
 
         self.title_timer = QTimer(self)
-        self.title_timer.timeout.connect(
-            lambda: self.discord.set_track(
-                self.browser.page().title(),
-                self.cfg.get("discord_enabled", True)
-            )
-        )
-        self.title_timer.start(1000)
-
-        self.ad_timer = QTimer(self)
-        self.ad_timer.timeout.connect(self._inject_ad_hider)
-        self.ad_timer.start(3000)
+        self.title_timer.timeout.connect(self._check_title)
+        self.title_timer.start(3000)
 
         self._build_tray()
         self._build_menu()
 
     def _on_load_finished(self, ok):
         page = self.browser.page()
-        page.runJavaScript(AD_HIDE_CSS)
+        page.runJavaScript(AD_HIDE_CSS_ONCE)
         page.runJavaScript(LIKE_THROTTLE_JS)
 
-    def _inject_ad_hider(self):
-        self.browser.page().runJavaScript(AD_HIDE_CSS)
+    def _check_title(self):
+        title = self.browser.page().title()
+        if title != self._last_title:
+            self._last_title = title
+            self.discord.set_track(title, self.cfg.get("discord_enabled", True))
 
     def _build_menu(self):
         bar = self.menuBar()
