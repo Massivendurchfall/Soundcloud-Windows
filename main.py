@@ -13,16 +13,40 @@ from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter
 import sys
 import os
 import json
+import shutil
 import winreg
-
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
-    "--disable-blink-features=AutomationControlled "
-    "--no-sandbox"
-)
 
 DATA_DIR      = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "SoundCloudApp")
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+CACHE_DIR     = os.path.join(DATA_DIR, "cache")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def _clear_corrupt_cache():
+    for name in ("GPUCache", "ShaderCache", "Code Cache"):
+        p = os.path.join(CACHE_DIR, name)
+        if os.path.isdir(p):
+            try:
+                shutil.rmtree(p)
+            except Exception:
+                pass
+    index = os.path.join(CACHE_DIR, "index")
+    if os.path.isfile(index):
+        try:
+            os.remove(index)
+        except Exception:
+            pass
+
+
+_clear_corrupt_cache()
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+    "--disable-blink-features=AutomationControlled "
+    "--no-sandbox "
+    "--autoplay-policy=no-user-gesture-required "
+    "--disable-features=AudioServiceOutOfProcess"
+)
 
 AUTOSTART_KEY  = r"Software\Microsoft\Windows\CurrentVersion\Run"
 AUTOSTART_NAME = "SoundCloudApp"
@@ -335,7 +359,8 @@ class SoundCloudApp(QMainWindow):
 
         self.profile = QWebEngineProfile("soundcloud", self)
         self.profile.setPersistentStoragePath(DATA_DIR)
-        self.profile.setCachePath(os.path.join(DATA_DIR, "cache"))
+        self.profile.setCachePath(CACHE_DIR)
+        self.profile.setHttpCacheMaximumSize(80 * 1024 * 1024)
         self.profile.setPersistentCookiesPolicy(
             QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
         )
