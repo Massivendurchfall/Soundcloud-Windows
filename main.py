@@ -1,19 +1,17 @@
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSystemTrayIcon, QMenu,
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QCheckBox, QFrame, QWidget
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QCheckBox, QWidget
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (
     QWebEngineProfile, QWebEnginePage,
     QWebEngineUrlRequestInterceptor, QWebEngineScript
 )
-from PyQt6.QtCore import QUrl, QTimer, Qt
+from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter
 import sys
 import os
-import time
-import threading
 import json
 import winreg
 
@@ -189,7 +187,7 @@ class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
 
 
 def load_settings():
-    defaults = {"discord_id": "", "autostart": False, "discord_enabled": True}
+    defaults = {"autostart": False}
     try:
         with open(SETTINGS_FILE, "r") as f:
             return {**defaults, **json.load(f)}
@@ -218,86 +216,6 @@ def set_autostart(enabled: bool):
         print(f"Autostart error: {e}")
 
 
-try:
-    from pypresence import Presence
-    DISCORD_AVAILABLE = True
-except ImportError:
-    DISCORD_AVAILABLE = False
-
-
-class DiscordPresence:
-    def __init__(self, client_id: str):
-        self.rpc        = None
-        self.connected  = False
-        self.client_id  = client_id
-        self.current    = ""
-        self.start_time = int(time.time())
-        self._lock      = threading.Lock()
-        if client_id and DISCORD_AVAILABLE:
-            threading.Thread(target=self._connect, daemon=True).start()
-
-    def _connect(self):
-        try:
-            self.rpc = Presence(self.client_id)
-            self.rpc.connect()
-            self.connected = True
-            self._push("Browsing SoundCloud", "")
-        except Exception:
-            self.connected = False
-
-    def _push(self, state, details):
-        if not self.connected or not self.rpc:
-            return
-        try:
-            self.rpc.update(
-                state=state, details=details or None, start=self.start_time,
-                large_image="soundcloud", large_text="SoundCloud",
-            )
-        except Exception:
-            self.connected = False
-
-    def set_track(self, title: str, enabled: bool = True):
-        if not enabled:
-            return
-        with self._lock:
-            track = ""
-            for suffix in ["| Free Listening on SoundCloud", "| Listen for free on SoundCloud"]:
-                if suffix in title:
-                    track = title.split("|")[0].strip()
-                    break
-            if not track and " - SoundCloud" in title:
-                track = title.replace(" - SoundCloud", "").strip()
-            if track.lower() in ("soundcloud", ""):
-                track = ""
-            if track == self.current:
-                return
-            self.current = track
-            if track:
-                parts   = track.split(" - ", 1)
-                details = f"🎵 {parts[1].strip()}" if len(parts) == 2 else f"🎵 {track}"
-                state   = f"by {parts[0].strip()}" if len(parts) == 2 else "SoundCloud"
-                self.start_time = int(time.time())
-            else:
-                details, state = "", "Browsing SoundCloud"
-            threading.Thread(target=self._push, args=(state, details), daemon=True).start()
-
-    def reconnect(self, new_id: str):
-        self.close()
-        self.client_id  = new_id
-        self.connected  = False
-        self.current    = ""
-        self.start_time = int(time.time())
-        if new_id and DISCORD_AVAILABLE:
-            threading.Thread(target=self._connect, daemon=True).start()
-
-    def close(self):
-        if self.connected and self.rpc:
-            try:
-                self.rpc.close()
-            except Exception:
-                pass
-
-
 def make_tray_icon():
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "soundcloud.png")
     if os.path.exists(icon_path):
@@ -324,7 +242,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.settings = dict(settings)
         self.setWindowTitle("Settings")
-        self.setFixedSize(440, 340)
+        self.setFixedSize(340, 180)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self._build_ui()
         self._style()
@@ -347,45 +265,8 @@ class SettingsDialog(QDialog):
         body = QWidget()
         body.setObjectName("body")
         bl = QVBoxLayout(body)
-        bl.setContentsMargins(24, 22, 24, 22)
+        bl.setContentsMargins(24, 20, 24, 20)
         bl.setSpacing(10)
-
-        lbl = QLabel("Discord Application ID  (= Client ID)")
-        lbl.setObjectName("boldLabel")
-        bl.addWidget(lbl)
-
-        sub = QLabel(
-            "discord.com/developers → Select your app → "
-            "Copy \"Application ID\" — this is also the Client ID."
-        )
-        sub.setObjectName("subLabel")
-        sub.setWordWrap(True)
-        bl.addWidget(sub)
-
-        self.dc_input = QLineEdit()
-        self.dc_input.setPlaceholderText("e.g.  123456789012345678")
-        self.dc_input.setText(self.settings.get("discord_id", ""))
-        self.dc_input.setObjectName("idInput")
-        bl.addWidget(self.dc_input)
-
-        div = QFrame()
-        div.setFrameShape(QFrame.Shape.HLine)
-        div.setObjectName("divider")
-        bl.addSpacing(4)
-        bl.addWidget(div)
-        bl.addSpacing(4)
-
-        self.discord_cb = QCheckBox("Enable Discord Rich Presence")
-        self.discord_cb.setChecked(self.settings.get("discord_enabled", True))
-        self.discord_cb.setObjectName("autoCheck")
-        bl.addWidget(self.discord_cb)
-
-        div2 = QFrame()
-        div2.setFrameShape(QFrame.Shape.HLine)
-        div2.setObjectName("divider")
-        bl.addSpacing(4)
-        bl.addWidget(div2)
-        bl.addSpacing(4)
 
         self.autostart_cb = QCheckBox("Launch with Windows")
         self.autostart_cb.setChecked(self.settings.get("autostart", False))
@@ -412,9 +293,7 @@ class SettingsDialog(QDialog):
         root.addWidget(footer)
 
     def _save(self):
-        self.settings["discord_id"]      = self.dc_input.text().strip()
-        self.settings["discord_enabled"] = self.discord_cb.isChecked()
-        self.settings["autostart"]       = self.autostart_cb.isChecked()
+        self.settings["autostart"] = self.autostart_cb.isChecked()
         self.accept()
 
     def get_settings(self):
@@ -426,14 +305,6 @@ class SettingsDialog(QDialog):
             #header   { background: #1a1a1a; border-bottom: 1px solid #252525; }
             #headerTitle { font-size: 14px; font-weight: 700; color: #fff; font-family: 'Segoe UI', sans-serif; }
             #body     { background: #111; }
-            #boldLabel { font-size: 13px; font-weight: 600; color: #fff; font-family: 'Segoe UI', sans-serif; }
-            #subLabel { font-size: 11px; color: #555; font-family: 'Segoe UI', sans-serif; }
-            #idInput {
-                background: #1c1c1c; border: 1px solid #2e2e2e; border-radius: 6px; color: #fff;
-                font-family: 'Consolas', monospace; font-size: 13px; padding: 8px 12px;
-            }
-            #idInput:focus { border-color: #ff5500; }
-            #divider  { color: #222; }
             #autoCheck { color: #ccc; font-size: 13px; font-family: 'Segoe UI', sans-serif; }
             #autoCheck::indicator { width: 16px; height: 16px; border: 1px solid #3a3a3a; border-radius: 4px; background: #1c1c1c; }
             #autoCheck::indicator:checked { background: #ff5500; border-color: #ff5500; }
@@ -454,7 +325,6 @@ class SoundCloudApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.cfg = load_settings()
-        self._last_title = ""
         self.setWindowTitle("SoundCloud")
         self.setMinimumSize(800, 600)
         self.resize(1200, 800)
@@ -490,12 +360,6 @@ class SoundCloudApp(QMainWindow):
 
         page.loadFinished.connect(self._on_load_finished)
 
-        self.discord = DiscordPresence(self.cfg.get("discord_id", ""))
-
-        self.title_timer = QTimer(self)
-        self.title_timer.timeout.connect(self._check_title)
-        self.title_timer.start(3000)
-
         self._build_tray()
         self._build_menu()
 
@@ -503,12 +367,6 @@ class SoundCloudApp(QMainWindow):
         page = self.browser.page()
         page.runJavaScript(AD_HIDE_CSS_ONCE)
         page.runJavaScript(LIKE_THROTTLE_JS)
-
-    def _check_title(self):
-        title = self.browser.page().title()
-        if title != self._last_title:
-            self._last_title = title
-            self.discord.set_track(title, self.cfg.get("discord_enabled", True))
 
     def _build_menu(self):
         bar = self.menuBar()
@@ -555,13 +413,6 @@ class SoundCloudApp(QMainWindow):
             new = dlg.get_settings()
             if new["autostart"] != self.cfg.get("autostart"):
                 set_autostart(new["autostart"])
-            id_changed     = new["discord_id"]      != self.cfg.get("discord_id")
-            toggle_changed = new["discord_enabled"]  != self.cfg.get("discord_enabled", True)
-            if id_changed or toggle_changed:
-                if new["discord_enabled"] and new["discord_id"]:
-                    self.discord.reconnect(new["discord_id"])
-                else:
-                    self.discord.close()
             self.cfg = new
             save_settings(self.cfg)
 
@@ -572,7 +423,6 @@ class SoundCloudApp(QMainWindow):
                               QSystemTrayIcon.MessageIcon.Information, 2000)
 
     def _quit(self):
-        self.discord.close()
         self.tray.hide()
         QApplication.quit()
 
