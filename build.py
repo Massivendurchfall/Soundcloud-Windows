@@ -53,33 +53,26 @@ def ensure_pyinstaller():
 
 
 def find_qtwebengine_binaries():
-    """Findet den Pfad zu den QtWebEngine-Prozess-Binaries die PyInstaller nicht automatisch findet."""
     extras = []
     try:
         import PyQt6
         qt_dir = os.path.dirname(PyQt6.__file__)
 
-        # QtWebEngineProcess.exe + alle .pak / .dat / icudtl.dat Dateien
-        webengine_dir = os.path.join(qt_dir, "Qt6", "bin")
-        process_exe   = os.path.join(webengine_dir, "QtWebEngineProcess.exe")
+        process_exe = os.path.join(qt_dir, "Qt6", "bin", "QtWebEngineProcess.exe")
         if os.path.exists(process_exe):
-            extras += [f"--add-binary={process_exe};PyQt6/Qt6/bin"]
+            extras.append(f"--add-binary={process_exe};PyQt6/Qt6/bin")
 
-        # Resources (pak-Dateien, icudtl.dat, etc.)
         resources_dir = os.path.join(qt_dir, "Qt6", "resources")
         if os.path.exists(resources_dir):
-            extras += [f"--add-data={resources_dir};PyQt6/Qt6/resources"]
+            extras.append(f"--add-data={resources_dir};PyQt6/Qt6/resources")
 
-        # Translations
         translations_dir = os.path.join(qt_dir, "Qt6", "translations")
         if os.path.exists(translations_dir):
-            extras += [f"--add-data={translations_dir};PyQt6/Qt6/translations"]
+            extras.append(f"--add-data={translations_dir};PyQt6/Qt6/translations")
 
-        # WebEngine-spezifische Resources
-        webengine_res = os.path.join(qt_dir, "Qt6", "bin", "QtWebEngineProcess.exe")
-        locales_dir   = os.path.join(qt_dir, "Qt6", "bin", "locales")
+        locales_dir = os.path.join(qt_dir, "Qt6", "bin", "locales")
         if os.path.exists(locales_dir):
-            extras += [f"--add-data={locales_dir};PyQt6/Qt6/bin/locales"]
+            extras.append(f"--add-data={locales_dir};PyQt6/Qt6/bin/locales")
 
     except Exception as e:
         print(f"Warning: Could not locate QtWebEngine binaries: {e}")
@@ -98,12 +91,11 @@ def build():
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",
-        "--onedir",          # onedir statt onefile — QtWebEngine braucht externe Prozess-Binaries
+        "--onefile",
         "--windowed",
         f"--name={APP_NAME}",
         f"--icon={icon_arg}",
-        f"--add-data={ICON_PNG};.",   # Icon ins Root der .exe
-        # Versteckte Imports die PyInstaller oft übersieht
+        f"--add-data={ICON_PNG};.",
         "--hidden-import=PyQt6.QtWebEngineWidgets",
         "--hidden-import=PyQt6.QtWebEngineCore",
         "--hidden-import=PyQt6.QtWebChannel",
@@ -115,18 +107,8 @@ def build():
     result = subprocess.run(cmd)
 
     if result.returncode == 0:
-        dist_dir = os.path.join("dist", APP_NAME)
-        exe      = os.path.join(dist_dir, f"{APP_NAME}.exe")
-        print(f"\nBuild successful!")
-        print(f"Executable: {exe}")
-
-        # Icon in dist-Ordner kopieren (für Tray)
-        if os.path.exists(ICON_PNG):
-            shutil.copy(ICON_PNG, os.path.join(dist_dir, ICON_PNG))
-            print(f"Copied {ICON_PNG} to {dist_dir}/")
-
-        print(f"\nZum Starten: {exe}")
-        print(f"Zum Verteilen: den ganzen Ordner '{dist_dir}' weitergeben.")
+        exe = os.path.join("dist", f"{APP_NAME}.exe")
+        print(f"\nBuild successful! -> {exe}")
     else:
         print("\nBuild failed.")
         sys.exit(1)
