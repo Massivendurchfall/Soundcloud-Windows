@@ -6,7 +6,6 @@ Built with PyQt6 + QtWebEngine — runs SoundCloud in a proper desktop window wi
 
 - Runs SoundCloud in its own window
 - Lives in the system tray when closed
-- Discord Rich Presence (shows what you're listening to)
 - Ad blocker built in
 - Launches with Windows (optional)
 - Persistent login stays logged in between sessions
